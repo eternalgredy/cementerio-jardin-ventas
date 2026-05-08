@@ -1,0 +1,9 @@
+convertido-dxf/
+convertido-svg/
+*.dwg
+*.dxf
+plano.svg
+*.bak
+*.tmp
+.env
+node_modules/
