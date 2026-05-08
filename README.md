@@ -36,7 +36,7 @@ Colecciones usadas:
 
 La app intenta usar Firebase Authentication anonimo. Si Auth no esta activado, sigue funcionando con las reglas publicas incluidas en `firestore.rules`.
 
-Para produccion con usuarios reales conviene cambiar a Firebase Authentication con correo/contrasena o anonimo habilitado y volver a reglas `request.auth != null`; el login visual de esta pagina no reemplaza seguridad real de Firebase.
+La pantalla de ingreso local limita la interfaz a dos usuarios administradores. Para produccion con usuarios reales conviene cambiar a Firebase Authentication con correo/contrasena o anonimo habilitado y volver a reglas `request.auth != null`; el login visual de esta pagina no reemplaza seguridad real de Firebase.
 
 ## GitHub Pages
 

@@ -28,13 +28,32 @@ const STATUS = {
 const STORAGE_KEY = "jardin-nichos-ventas-v1";
 const HISTORY_KEY = "jardin-nichos-historial-v1";
 const AUTH_KEY = "jardin-nichos-auth-v1";
+const APP_USERS = {
+  rocio: {
+    name: "Rocio",
+    role: "admin",
+    passwordHash: "8f6e743f3a8ef585dc4859ef28378897abad6e9855f6eafb88c481c2c9c9d7c4"
+  },
+  soto: {
+    name: "Soto",
+    role: "admin",
+    passwordHash: "d63e838c04e4c012f1186c0bc5d6c783db642b7163eb556d2304d9b897526cb5"
+  }
+};
 const initialLots = {
   ...buildInitialLots(),
   ...(readJson(STORAGE_KEY, null) || {})
 };
+const savedAuth = readJson(AUTH_KEY, null);
+const initialAuth = normalizeAuth(savedAuth);
+
+if (savedAuth && !initialAuth) {
+  localStorage.removeItem(AUTH_KEY);
+}
 
 const state = {
-  auth: readJson(AUTH_KEY, null),
+  auth: initialAuth,
+  loginError: "",
   view: "mapa",
   lots: initialLots,
   history: readJson(HISTORY_KEY, []),
@@ -107,6 +126,26 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function normalizeAuth(auth) {
+  const user = APP_USERS[auth?.user];
+  if (!user) return null;
+  return {
+    user: auth.user,
+    name: user.name,
+    role: user.role,
+    loggedAt: auth.loggedAt || ""
+  };
+}
+
+async function sha256Hex(value) {
+  if (!window.crypto?.subtle) {
+    throw new Error("Este navegador no permite validar contrasena de forma segura");
+  }
+  const data = new TextEncoder().encode(value);
+  const hash = await window.crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function groups() {
@@ -183,30 +222,54 @@ function renderLogin() {
         <p style="margin-top:6px">Control de ventas, reservas y disponibilidad de nichos.</p>
 
         <label class="field">
-          <span>Nombre de usuario</span>
-          <input class="input" id="loginName" autocomplete="name" required value="Admin" />
-        </label>
-
-        <label class="field">
-          <span>Rol</span>
-          <select class="select" id="loginRole">
-            <option value="admin">Administrador</option>
-            <option value="ventas">Ventas</option>
+          <span>Usuario</span>
+          <select class="select" id="loginUser" autocomplete="username" required>
+            ${Object.entries(APP_USERS)
+              .map(([key, user]) => `<option value="${key}">${escapeHtml(user.name)}</option>`)
+              .join("")}
           </select>
         </label>
 
+        <label class="field">
+          <span>Contrasena</span>
+          <input class="input" id="loginPassword" type="password" autocomplete="current-password" required />
+        </label>
+
+        ${state.loginError ? `<p class="login-error">${escapeHtml(state.loginError)}</p>` : ""}
         <button class="primary-btn" style="width:100%;margin-top:18px" type="submit">Ingresar</button>
         <p class="small-text" style="margin-top:12px">${escapeHtml(syncLabel())}</p>
       </form>
     </main>
   `;
 
-  document.querySelector("#loginForm").addEventListener("submit", (event) => {
+  document.querySelector("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const userKey = document.querySelector("#loginUser").value;
+    const password = document.querySelector("#loginPassword").value;
+    const user = APP_USERS[userKey];
+    let passwordHash = "";
+
+    try {
+      passwordHash = await sha256Hex(password);
+    } catch (error) {
+      state.loginError = error.message;
+      render();
+      return;
+    }
+
+    if (!user || passwordHash !== user.passwordHash) {
+      state.loginError = "Usuario o contrasena incorrectos";
+      render();
+      return;
+    }
+
     state.auth = {
-      name: document.querySelector("#loginName").value.trim() || "Usuario",
-      role: document.querySelector("#loginRole").value
+      user: userKey,
+      name: user.name,
+      role: user.role,
+      loggedAt: new Date().toISOString()
     };
+    state.loginError = "";
     writeJson(AUTH_KEY, state.auth);
     render();
   });
