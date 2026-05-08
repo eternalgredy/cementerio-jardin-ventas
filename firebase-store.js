@@ -30,7 +30,9 @@ if (hasFirebaseConfig) {
     const firebaseApp = initializeApp(firebaseConfig);
     const auth = getAuth(firebaseApp);
     db = getFirestore(firebaseApp);
-    ready = signInAnonymously(auth);
+    ready = signInAnonymously(auth).catch((error) => {
+      console.warn("Firebase Auth anonimo no disponible; usando reglas Firestore sin auth.", error);
+    });
   } catch (error) {
     initError = error?.message || "No se pudo iniciar Firebase";
   }

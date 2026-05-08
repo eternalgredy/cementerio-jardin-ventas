@@ -5,5 +5,7 @@ convertido-svg/
 plano.svg
 *.bak
 *.tmp
+firebase-debug.log
+.firebase/
 .env
 node_modules/

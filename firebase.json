@@ -1,0 +1,40 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      ".git",
+      ".git/**",
+      ".firebase",
+      ".firebase/**",
+      ".firebaserc",
+      ".gitignore",
+      "README.md",
+      "package.json",
+      "firestore.rules",
+      "firebase-debug.log",
+      "**/node_modules/**",
+      "convertido-dxf/**",
+      "convertido-svg/**",
+      "*.dwg",
+      "*.dxf",
+      "plano.svg",
+      "*.ps1",
+      "lotes.example.json"
+    ],
+    "headers": [
+      {
+        "source": "**/*.@(js|css)",
+        "headers": [
+          {
+            "key": "Cache-Control",
+            "value": "public,max-age=300"
+          }
+        ]
+      }
+    ]
+  }
+}

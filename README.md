@@ -34,9 +34,9 @@ Colecciones usadas:
 - `nichos`: estado actual de cada nicho.
 - `historial`: movimientos de venta/reserva.
 
-La app usa Firebase Authentication anonimo para poder escribir con reglas `request.auth != null`. Reglas base incluidas en `firestore.rules`.
+La app intenta usar Firebase Authentication anonimo. Si Auth no esta activado, sigue funcionando con las reglas publicas incluidas en `firestore.rules`.
 
-Para produccion con usuarios reales conviene cambiar a Firebase Authentication con correo/contrasena; el login visual de esta pagina no reemplaza seguridad real de Firebase.
+Para produccion con usuarios reales conviene cambiar a Firebase Authentication con correo/contrasena o anonimo habilitado y volver a reglas `request.auth != null`; el login visual de esta pagina no reemplaza seguridad real de Firebase.
 
 ## GitHub Pages
 
