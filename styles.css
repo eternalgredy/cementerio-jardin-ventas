@@ -360,6 +360,19 @@ p {
   touch-action: manipulation;
 }
 
+.map-reset-btn {
+  min-width: 72px;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 900;
+  background: #ffffff;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  touch-action: manipulation;
+}
+
 .zoom-readout {
   min-width: 48px;
   color: #334155;
@@ -378,25 +391,32 @@ p {
 .map-wrap {
   position: relative;
   min-height: 620px;
-  overflow: auto;
-  background: #ffffff;
+  overflow: hidden;
+  background: #0f172a;
+  cursor: grab;
   overscroll-behavior: contain;
-  touch-action: pan-x pan-y pinch-zoom;
-  -webkit-overflow-scrolling: touch;
+  touch-action: none;
+  user-select: none;
+}
+
+.map-wrap.is-touching,
+.map-wrap.is-dragging {
+  cursor: grabbing;
 }
 
 .vector-stage {
   position: relative;
-  width: calc(100% * var(--map-zoom, 1));
-  min-width: calc(980px * var(--map-zoom, 1));
+  width: 100%;
+  height: 620px;
+  min-width: 0;
 }
 
 .vector-map {
   display: block;
   width: 100%;
-  height: auto;
-  min-height: 620px;
+  height: 100%;
   background: #0f172a;
+  touch-action: none;
 }
 
 .map-bg {
@@ -702,6 +722,10 @@ p {
     min-height: 560px;
   }
 
+  .vector-stage {
+    height: 560px;
+  }
+
   .side-list {
     max-height: none;
   }
@@ -757,6 +781,11 @@ p {
     height: 44px;
   }
 
+  .map-reset-btn {
+    min-width: 82px;
+    height: 44px;
+  }
+
   .zoom-readout {
     flex: 1;
   }
@@ -766,7 +795,8 @@ p {
   }
 
   .vector-stage {
-    min-width: calc(1120px * var(--map-zoom, 1));
+    height: 68vh;
+    min-width: 0;
   }
 
   .side-list {

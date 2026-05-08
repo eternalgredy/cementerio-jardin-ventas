@@ -28,6 +28,9 @@ const STATUS = {
 const STORAGE_KEY = "jardin-nichos-ventas-v1";
 const HISTORY_KEY = "jardin-nichos-historial-v1";
 const AUTH_KEY = "jardin-nichos-auth-v1";
+const MIN_MAP_ZOOM = 1;
+const MAX_MAP_ZOOM = 8;
+const DEFAULT_MAP_ZOOM = window.matchMedia("(max-width: 620px)").matches ? 1.45 : 1;
 const APP_USERS = {
   rocio: {
     name: "Rocio",
@@ -46,6 +49,7 @@ const initialLots = {
 };
 const savedAuth = readJson(AUTH_KEY, null);
 const initialAuth = normalizeAuth(savedAuth);
+const defaultMapCenter = getDefaultMapCenter();
 
 if (savedAuth && !initialAuth) {
   localStorage.removeItem(AUTH_KEY);
@@ -59,7 +63,9 @@ const state = {
   history: readJson(HISTORY_KEY, []),
   syncStatus: firebaseStore.enabled ? "syncing" : "local",
   syncMessage: firebaseStore.enabled ? "Sincronizando Firebase" : firebaseStore.reason,
-  mapZoom: window.matchMedia("(max-width: 620px)").matches ? 1.45 : 1,
+  mapZoom: DEFAULT_MAP_ZOOM,
+  mapCenter: defaultMapCenter,
+  mapAspect: PLANO.width / PLANO.height,
   search: "",
   statusFilter: "all",
   groupFilter: "all",
@@ -68,8 +74,14 @@ const state = {
 };
 
 const app = document.querySelector("#app");
+let mapResizeTimer = 0;
 
 init();
+
+window.addEventListener("resize", () => {
+  window.clearTimeout(mapResizeTimer);
+  mapResizeTimer = window.setTimeout(() => syncMapAspect(), 80);
+});
 
 async function init() {
   render();
@@ -126,6 +138,93 @@ function readJson(key, fallback) {
 
 function writeJson(key, value) {
   localStorage.setItem(key, JSON.stringify(value));
+}
+
+function getDefaultMapCenter() {
+  const bounds = getLotsBounds();
+  if (!bounds) {
+    return { x: PLANO.width / 2, y: PLANO.height / 2 };
+  }
+  return {
+    x: (bounds.minX + bounds.maxX) / 2,
+    y: (bounds.minY + bounds.maxY) / 2
+  };
+}
+
+function getLotsBounds() {
+  const points = (PLANO.lots || []).flatMap((lot) => lot.points || []);
+  if (!points.length) return null;
+  return points.reduce(
+    (bounds, point) => ({
+      minX: Math.min(bounds.minX, point[0]),
+      minY: Math.min(bounds.minY, point[1]),
+      maxX: Math.max(bounds.maxX, point[0]),
+      maxY: Math.max(bounds.maxY, point[1])
+    }),
+    { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity }
+  );
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function clampMapZoom(zoom) {
+  return clamp(Number(zoom) || DEFAULT_MAP_ZOOM, MIN_MAP_ZOOM, MAX_MAP_ZOOM);
+}
+
+function getMapView(zoom = state.mapZoom, center = state.mapCenter) {
+  const nextZoom = clampMapZoom(zoom);
+  const { width, height } = getMapViewSize(nextZoom);
+  const maxX = Math.max(0, PLANO.width - width);
+  const maxY = Math.max(0, PLANO.height - height);
+  const x = clamp((center?.x ?? PLANO.width / 2) - width / 2, 0, maxX);
+  const y = clamp((center?.y ?? PLANO.height / 2) - height / 2, 0, maxY);
+
+  return {
+    x,
+    y,
+    width,
+    height,
+    center: {
+      x: x + width / 2,
+      y: y + height / 2
+    }
+  };
+}
+
+function getMapViewSize(zoom) {
+  const mapAspect = PLANO.width / PLANO.height;
+  const viewportAspect = state.mapAspect || mapAspect;
+  if (viewportAspect >= mapAspect) {
+    const width = PLANO.width / zoom;
+    return {
+      width,
+      height: width / viewportAspect
+    };
+  }
+
+  const height = PLANO.height / zoom;
+  return {
+    width: height * viewportAspect,
+    height
+  };
+}
+
+function applyMapView() {
+  state.mapZoom = clampMapZoom(state.mapZoom);
+  const view = getMapView();
+  state.mapCenter = view.center;
+  return view;
+}
+
+function mapViewBoxAttr() {
+  const view = applyMapView();
+  return [view.x, view.y, view.width, view.height].map(formatMapNumber).join(" ");
+}
+
+function formatMapNumber(value) {
+  return Number(value).toFixed(3).replace(/\.?0+$/, "");
 }
 
 function normalizeAuth(auth) {
@@ -374,8 +473,8 @@ function renderMapView() {
               ${renderLegend()}
             </div>
           </div>
-          <div class="map-wrap">
-            <div class="vector-stage" style="--map-zoom:${state.mapZoom}">
+          <div class="map-wrap" id="mapWrap">
+            <div class="vector-stage">
               ${renderVectorMap(visible)}
             </div>
           </div>
@@ -400,8 +499,9 @@ function renderMapControls() {
   return `
     <div class="map-controls" aria-label="Controles de zoom">
       <button class="map-control-btn" id="zoomOut" type="button" aria-label="Alejar">−</button>
-      <span class="zoom-readout">${Math.round(state.mapZoom * 100)}%</span>
+      <span class="zoom-readout" id="zoomReadout">${Math.round(state.mapZoom * 100)}%</span>
       <button class="map-control-btn" id="zoomIn" type="button" aria-label="Acercar">+</button>
+      <button class="map-reset-btn" id="zoomReset" type="button">Centrar</button>
     </div>
   `;
 }
@@ -409,8 +509,10 @@ function renderMapControls() {
 function renderVectorMap(visible) {
   return `
     <svg
+      id="vectorMap"
       class="vector-map"
-      viewBox="0 0 ${PLANO.width} ${PLANO.height}"
+      viewBox="${mapViewBoxAttr()}"
+      preserveAspectRatio="xMidYMid meet"
       role="img"
       aria-label="Plano vectorial de nichos"
     >
@@ -706,13 +808,17 @@ function bindEvents() {
   document.querySelector("#exportBtn")?.addEventListener("click", exportLots);
 
   document.querySelector("#zoomOut")?.addEventListener("click", () => {
-    state.mapZoom = Math.max(0.8, Number((state.mapZoom - 0.2).toFixed(2)));
-    render();
+    setMapZoom(state.mapZoom / 1.25);
   });
 
   document.querySelector("#zoomIn")?.addEventListener("click", () => {
-    state.mapZoom = Math.min(3, Number((state.mapZoom + 0.2).toFixed(2)));
-    render();
+    setMapZoom(state.mapZoom * 1.25);
+  });
+
+  document.querySelector("#zoomReset")?.addEventListener("click", () => {
+    state.mapZoom = DEFAULT_MAP_ZOOM;
+    state.mapCenter = defaultMapCenter;
+    updateMapSvg();
   });
 
   document.querySelector("#clearHistoryBtn")?.addEventListener("click", () => {
@@ -728,6 +834,8 @@ function bindEvents() {
     showToast("Historial limpiado");
     render();
   });
+
+  bindMapGestures();
 
   document.querySelectorAll("[data-lot]").forEach((element) => {
     element.addEventListener("click", () => {
@@ -750,6 +858,231 @@ function bindEvents() {
   });
 
   document.querySelector("#lotForm")?.addEventListener("submit", saveLotFromForm);
+}
+
+function bindMapGestures() {
+  const svg = document.querySelector("#vectorMap");
+  const wrap = document.querySelector("#mapWrap");
+  if (!svg || !wrap) return;
+  syncMapAspect(svg);
+
+  const pointers = new Map();
+  const gesture = {
+    downTargetLot: null,
+    downClient: null,
+    lastPoint: null,
+    lastTap: null,
+    moved: false,
+    pinch: null,
+    suppressClick: false
+  };
+
+  svg.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const factor = event.deltaY < 0 ? 1.18 : 0.85;
+    zoomMapAtClient(svg, event.clientX, event.clientY, state.mapZoom * factor);
+  }, { passive: false });
+
+  svg.addEventListener("dblclick", (event) => {
+    if (event.target.closest?.("[data-lot]")) return;
+    event.preventDefault();
+    suppressNextMapClick(gesture);
+    zoomMapAtClient(svg, event.clientX, event.clientY, state.mapZoom * 1.8);
+  });
+
+  svg.addEventListener("click", (event) => {
+    if (!gesture.suppressClick) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    gesture.suppressClick = false;
+  }, true);
+
+  svg.addEventListener("pointerdown", (event) => {
+    if (event.button !== undefined && event.button !== 0) return;
+    pointers.set(event.pointerId, pointFromClient(event));
+    gesture.downTargetLot = event.target.closest?.("[data-lot]") || null;
+    gesture.downClient = pointFromClient(event);
+    gesture.lastPoint = svgPointFromClient(svg, event.clientX, event.clientY);
+    gesture.moved = false;
+    gesture.pinch = null;
+    wrap.classList.add("is-touching");
+
+    try {
+      svg.setPointerCapture(event.pointerId);
+    } catch {
+      // Some older browsers do not allow capture on SVG nodes.
+    }
+
+    if (pointers.size === 2) {
+      startPinchGesture(svg, pointers, gesture);
+    }
+  });
+
+  svg.addEventListener("pointermove", (event) => {
+    if (!pointers.has(event.pointerId)) return;
+    event.preventDefault();
+    pointers.set(event.pointerId, pointFromClient(event));
+
+    if (pointers.size >= 2) {
+      if (!gesture.pinch) startPinchGesture(svg, pointers, gesture);
+      updatePinchGesture(svg, pointers, gesture);
+      wrap.classList.add("is-dragging");
+      return;
+    }
+
+    const currentPoint = svgPointFromClient(svg, event.clientX, event.clientY);
+    if (!currentPoint || !gesture.lastPoint) return;
+    const movedBy = gesture.downClient ? distance(pointFromClient(event), gesture.downClient) : 0;
+    if (movedBy > 6) {
+      gesture.moved = true;
+      wrap.classList.add("is-dragging");
+      state.mapCenter = {
+        x: state.mapCenter.x - (currentPoint.x - gesture.lastPoint.x),
+        y: state.mapCenter.y - (currentPoint.y - gesture.lastPoint.y)
+      };
+      updateMapSvg(svg);
+    }
+    gesture.lastPoint = svgPointFromClient(svg, event.clientX, event.clientY);
+  });
+
+  ["pointerup", "pointercancel", "pointerleave"].forEach((eventName) => {
+    svg.addEventListener(eventName, (event) => {
+      if (!pointers.has(event.pointerId)) return;
+      pointers.delete(event.pointerId);
+
+      if (pointers.size === 1) {
+        const remaining = [...pointers.values()][0];
+        gesture.lastPoint = svgPointFromClient(svg, remaining.x, remaining.y);
+        gesture.pinch = null;
+        return;
+      }
+
+      wrap.classList.remove("is-touching", "is-dragging");
+      if (gesture.moved) {
+        suppressNextMapClick(gesture);
+      } else if (!gesture.downTargetLot) {
+        handleBlankMapTap(svg, event, gesture);
+      }
+      gesture.downTargetLot = null;
+      gesture.downClient = null;
+      gesture.lastPoint = null;
+      gesture.moved = false;
+      gesture.pinch = null;
+    });
+  });
+}
+
+function pointFromClient(event) {
+  return { x: event.clientX, y: event.clientY };
+}
+
+function svgPointFromClient(svg, clientX, clientY) {
+  const matrix = svg.getScreenCTM();
+  if (!matrix) return null;
+  const point = svg.createSVGPoint();
+  point.x = clientX;
+  point.y = clientY;
+  return point.matrixTransform(matrix.inverse());
+}
+
+function startPinchGesture(svg, pointers, gesture) {
+  const [first, second] = [...pointers.values()];
+  const midpoint = midpointOf(first, second);
+  gesture.pinch = {
+    distance: Math.max(1, distance(first, second)),
+    zoom: state.mapZoom,
+    view: getMapView(),
+    anchor: svgPointFromClient(svg, midpoint.x, midpoint.y)
+  };
+  gesture.moved = true;
+}
+
+function updatePinchGesture(svg, pointers, gesture) {
+  const [first, second] = [...pointers.values()];
+  if (!first || !second || !gesture.pinch?.anchor) return;
+  const nextZoom = gesture.pinch.zoom * (distance(first, second) / gesture.pinch.distance);
+  const midpoint = midpointOf(first, second);
+  setMapZoom(nextZoom, gesture.pinch.anchor, gesture.pinch.view, svg);
+  const currentMidpoint = svgPointFromClient(svg, midpoint.x, midpoint.y);
+  if (currentMidpoint) {
+    state.mapCenter = {
+      x: state.mapCenter.x + (gesture.pinch.anchor.x - currentMidpoint.x),
+      y: state.mapCenter.y + (gesture.pinch.anchor.y - currentMidpoint.y)
+    };
+    updateMapSvg(svg);
+  }
+}
+
+function handleBlankMapTap(svg, event, gesture) {
+  const now = Date.now();
+  const tap = pointFromClient(event);
+  const lastTap = gesture.lastTap;
+  if (lastTap && now - lastTap.at < 320 && distance(tap, lastTap) < 28) {
+    suppressNextMapClick(gesture);
+    zoomMapAtClient(svg, event.clientX, event.clientY, state.mapZoom * 1.8);
+    gesture.lastTap = null;
+    return;
+  }
+  gesture.lastTap = { ...tap, at: now };
+}
+
+function midpointOf(first, second) {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2
+  };
+}
+
+function distance(first, second) {
+  return Math.hypot(first.x - second.x, first.y - second.y);
+}
+
+function suppressNextMapClick(gesture) {
+  gesture.suppressClick = true;
+  window.setTimeout(() => {
+    gesture.suppressClick = false;
+  }, 450);
+}
+
+function zoomMapAtClient(svg, clientX, clientY, zoom) {
+  const anchor = svgPointFromClient(svg, clientX, clientY);
+  setMapZoom(zoom, anchor, getMapView(), svg);
+}
+
+function setMapZoom(zoom, anchor = null, sourceView = getMapView(), svg = document.querySelector("#vectorMap")) {
+  const nextZoom = clampMapZoom(zoom);
+  if (anchor) {
+    const { width, height } = getMapViewSize(nextZoom);
+    const focusX = (anchor.x - sourceView.x) / sourceView.width;
+    const focusY = (anchor.y - sourceView.y) / sourceView.height;
+    state.mapCenter = {
+      x: anchor.x - focusX * width + width / 2,
+      y: anchor.y - focusY * height + height / 2
+    };
+  }
+  state.mapZoom = nextZoom;
+  updateMapSvg(svg);
+}
+
+function syncMapAspect(svg = document.querySelector("#vectorMap")) {
+  if (!svg) return;
+  const rect = svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const nextAspect = rect.width / rect.height;
+  if (Math.abs(nextAspect - state.mapAspect) < 0.01) return;
+  state.mapAspect = nextAspect;
+  updateMapSvg(svg);
+}
+
+function updateMapSvg(svg = document.querySelector("#vectorMap")) {
+  const view = applyMapView();
+  if (svg) {
+    svg.setAttribute("viewBox", [view.x, view.y, view.width, view.height].map(formatMapNumber).join(" "));
+  }
+  const readout = document.querySelector("#zoomReadout");
+  if (readout) {
+    readout.textContent = `${Math.round(state.mapZoom * 100)}%`;
+  }
 }
 
 function saveLotFromForm(event) {
