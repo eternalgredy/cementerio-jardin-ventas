@@ -2,12 +2,85 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email in [
+          "rocio@cementerio.local",
+          "soto@cementerio.local"
+        ];
+    }
+
+    function validLotKeys() {
+      return request.resource.data.keys().hasOnly([
+        "status",
+        "comprador",
+        "precio",
+        "nota",
+        "origen",
+        "modifiedBy",
+        "modifiedAt",
+        "firebaseUpdatedAt"
+      ]);
+    }
+
+    function validLotText() {
+      return request.resource.data.status is string
+        && request.resource.data.comprador is string
+        && request.resource.data.precio is string
+        && request.resource.data.nota is string
+        && request.resource.data.origen is string
+        && request.resource.data.modifiedBy is string
+        && request.resource.data.modifiedAt is string;
+    }
+
+    function sellerLotCreate() {
+      return validLotKeys()
+        && validLotText()
+        && request.resource.data.status == "reservado"
+        && request.resource.data.precio == "";
+    }
+
+    function sellerLotUpdate() {
+      return validLotKeys()
+        && validLotText()
+        && resource.data.status != "vendido"
+        && request.resource.data.status == "reservado"
+        && request.resource.data.precio == resource.data.precio;
+    }
+
+    function validHistoryKeys() {
+      return request.resource.data.keys().hasOnly([
+        "id",
+        "status",
+        "comprador",
+        "precio",
+        "user",
+        "at",
+        "firebaseCreatedAt"
+      ]);
+    }
+
+    function sellerHistoryCreate() {
+      return validHistoryKeys()
+        && request.resource.data.id is string
+        && request.resource.data.status == "reservado"
+        && request.resource.data.comprador is string
+        && request.resource.data.precio is string
+        && request.resource.data.user is string
+        && request.resource.data.at is string;
+    }
+
     match /nichos/{nichoId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isAdmin() || sellerLotCreate();
+      allow update: if isAdmin() || sellerLotUpdate();
+      allow delete: if isAdmin();
     }
 
     match /historial/{entryId} {
-      allow read, write: if true;
+      allow read: if true;
+      allow create: if isAdmin() || sellerHistoryCreate();
+      allow update, delete: if isAdmin();
     }
   }
 }

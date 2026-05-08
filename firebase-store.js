@@ -1,5 +1,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js";
-import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  signOut
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
 import {
   addDoc,
   collection,
@@ -21,17 +26,22 @@ const hasFirebaseConfig = Boolean(
     firebaseConfig?.appId
 );
 
+let auth = null;
+let currentUser = null;
 let db = null;
-let ready = Promise.resolve();
+let ready = Promise.resolve(null);
 let initError = "";
 
 if (hasFirebaseConfig) {
   try {
     const firebaseApp = initializeApp(firebaseConfig);
-    const auth = getAuth(firebaseApp);
+    auth = getAuth(firebaseApp);
     db = getFirestore(firebaseApp);
-    ready = signInAnonymously(auth).catch((error) => {
-      console.warn("Firebase Auth anonimo no disponible; usando reglas Firestore sin auth.", error);
+    ready = new Promise((resolve) => {
+      onAuthStateChanged(auth, (user) => {
+        currentUser = user;
+        resolve(user);
+      });
     });
   } catch (error) {
     initError = error?.message || "No se pudo iniciar Firebase";
@@ -55,6 +65,25 @@ async function ensureFirebase() {
 export const firebaseStore = {
   enabled: Boolean(db),
   reason: db ? "Firebase conectado" : initError || "Completa firebase-config.js",
+
+  async signInAdmin(email, password) {
+    assertFirebase();
+    if (!auth) throw new Error("Firebase Auth no esta disponible");
+    const credentials = await signInWithEmailAndPassword(auth, email, password);
+    currentUser = credentials.user;
+    return credentials.user;
+  },
+
+  async signOutAdmin() {
+    if (!auth) return;
+    await signOut(auth);
+    currentUser = null;
+  },
+
+  async getCurrentUser() {
+    await ready;
+    return currentUser;
+  },
 
   async getLots() {
     await ensureFirebase();

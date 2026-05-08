@@ -35,12 +35,12 @@ const APP_USERS = {
   rocio: {
     name: "Rocio",
     role: "admin",
-    passwordHash: "8f6e743f3a8ef585dc4859ef28378897abad6e9855f6eafb88c481c2c9c9d7c4"
+    email: "rocio@cementerio.local"
   },
   soto: {
     name: "Soto",
     role: "admin",
-    passwordHash: "d63e838c04e4c012f1186c0bc5d6c783db642b7163eb556d2304d9b897526cb5"
+    email: "soto@cementerio.local"
   }
 };
 const initialLots = {
@@ -85,8 +85,17 @@ window.addEventListener("resize", () => {
 });
 
 async function init() {
+  await restoreAuthSession();
   render();
   await loadFirebaseState();
+}
+
+async function restoreAuthSession() {
+  if (!state.auth || !isAdmin() || !firebaseStore.enabled) return;
+  const user = await firebaseStore.getCurrentUser();
+  if (user?.email === state.auth.email) return;
+  localStorage.removeItem(AUTH_KEY);
+  state.auth = null;
 }
 
 async function loadFirebaseState() {
@@ -242,18 +251,10 @@ function normalizeAuth(auth) {
   return {
     user: auth.user,
     name: user.name,
+    email: user.email,
     role: user.role,
     loggedAt: auth.loggedAt || ""
   };
-}
-
-async function sha256Hex(value) {
-  if (!window.crypto?.subtle) {
-    throw new Error("Este navegador no permite validar contrasena de forma segura");
-  }
-  const data = new TextEncoder().encode(value);
-  const hash = await window.crypto.subtle.digest("SHA-256", data);
-  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function isAdmin() {
@@ -419,18 +420,18 @@ function renderLogin() {
     const userKey = document.querySelector("#loginUser").value;
     const password = document.querySelector("#loginPassword").value;
     const user = APP_USERS[userKey];
-    let passwordHash = "";
 
-    try {
-      passwordHash = await sha256Hex(password);
-    } catch (error) {
-      state.loginError = error.message;
+    if (!user) {
+      state.loginError = "Usuario o contrasena incorrectos";
       render();
       return;
     }
 
-    if (!user || passwordHash !== user.passwordHash) {
+    try {
+      await firebaseStore.signInAdmin(user.email, password);
+    } catch (error) {
       state.loginError = "Usuario o contrasena incorrectos";
+      console.error(error);
       render();
       return;
     }
@@ -438,6 +439,7 @@ function renderLogin() {
     state.auth = {
       user: userKey,
       name: user.name,
+      email: user.email,
       role: user.role,
       loggedAt: new Date().toISOString()
     };
@@ -900,6 +902,9 @@ function bindEvents() {
 
   document.querySelector("#logoutBtn")?.addEventListener("click", () => {
     localStorage.removeItem(AUTH_KEY);
+    if (isAdmin()) {
+      firebaseStore.signOutAdmin().catch((error) => console.error(error));
+    }
     state.auth = null;
     render();
   });

@@ -34,9 +34,12 @@ Colecciones usadas:
 - `nichos`: estado actual de cada nicho.
 - `historial`: movimientos de venta/reserva.
 
-La app intenta usar Firebase Authentication anonimo. Si Auth no esta activado, sigue funcionando con las reglas publicas incluidas en `firestore.rules`.
+Los administradores usan Firebase Authentication con correo/contrasena. El rol vendedor entra solo con nombre y las reglas de Firestore solo le permiten crear o actualizar reservas; no puede cambiar nichos vendidos ni escribir ventas.
 
-La pantalla de ingreso local permite administradores con contrasena y vendedores con solo nombre. El rol vendedor solo puede guardar nichos como reservados y no puede editar nichos vendidos. Para produccion con usuarios reales conviene cambiar a Firebase Authentication con correo/contrasena o anonimo habilitado y volver a reglas `request.auth != null`; el login visual de esta pagina no reemplaza seguridad real de Firebase.
+Usuarios administradores en Auth:
+
+- `rocio@cementerio.local`
+- `soto@cementerio.local`
 
 ## GitHub Pages
 
