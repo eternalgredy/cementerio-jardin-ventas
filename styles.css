@@ -99,6 +99,10 @@ p {
   border-radius: 8px;
 }
 
+.login-panel[hidden] {
+  display: none;
+}
+
 .field {
   display: grid;
   gap: 7px;
@@ -225,7 +229,7 @@ p {
   max-width: 1320px;
   margin: 0 auto;
   display: grid;
-  grid-template-columns: repeat(5, minmax(130px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 12px;
 }
 
@@ -676,6 +680,27 @@ p {
   grid-template-columns: 1fr 1fr;
   gap: 10px;
   margin-top: 16px;
+}
+
+.modal-actions.single {
+  grid-template-columns: 1fr;
+}
+
+.seller-rule {
+  margin-top: 12px;
+  padding: 10px 12px;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
+  background: #fef3c7;
+  border: 1px solid #fbbf24;
+  border-radius: 8px;
+}
+
+.seller-rule.danger {
+  color: #991b1b;
+  background: #fee2e2;
+  border-color: #fca5a5;
 }
 
 .toast {

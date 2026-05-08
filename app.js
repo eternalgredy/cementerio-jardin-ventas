@@ -58,6 +58,7 @@ if (savedAuth && !initialAuth) {
 const state = {
   auth: initialAuth,
   loginError: "",
+  loginMode: "vendedor",
   view: "mapa",
   lots: initialLots,
   history: readJson(HISTORY_KEY, []),
@@ -229,6 +230,14 @@ function formatMapNumber(value) {
 
 function normalizeAuth(auth) {
   const user = APP_USERS[auth?.user];
+  if (auth?.role === "vendedor" && auth.name?.trim()) {
+    return {
+      user: auth.user || "vendedor",
+      name: auth.name.trim(),
+      role: "vendedor",
+      loggedAt: auth.loggedAt || ""
+    };
+  }
   if (!user) return null;
   return {
     user: auth.user,
@@ -245,6 +254,20 @@ async function sha256Hex(value) {
   const data = new TextEncoder().encode(value);
   const hash = await window.crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function isAdmin() {
+  return state.auth?.role === "admin";
+}
+
+function isSeller() {
+  return state.auth?.role === "vendedor";
+}
+
+function roleLabel() {
+  if (isAdmin()) return "Admin";
+  if (isSeller()) return "Vendedor";
+  return "Ventas";
 }
 
 function groups() {
@@ -321,18 +344,35 @@ function renderLogin() {
         <p style="margin-top:6px">Control de ventas, reservas y disponibilidad de nichos.</p>
 
         <label class="field">
-          <span>Usuario</span>
-          <select class="select" id="loginUser" autocomplete="username" required>
-            ${Object.entries(APP_USERS)
-              .map(([key, user]) => `<option value="${key}">${escapeHtml(user.name)}</option>`)
-              .join("")}
+          <span>Tipo de usuario</span>
+          <select class="select" id="loginMode">
+            <option value="vendedor" ${state.loginMode === "vendedor" ? "selected" : ""}>Vendedor</option>
+            <option value="admin" ${state.loginMode === "admin" ? "selected" : ""}>Administrador</option>
           </select>
         </label>
 
-        <label class="field">
-          <span>Contrasena</span>
-          <input class="input" id="loginPassword" type="password" autocomplete="current-password" required />
-        </label>
+        <div class="login-panel" id="sellerLoginPanel" ${state.loginMode === "admin" ? "hidden" : ""}>
+          <label class="field">
+            <span>Nombre del vendedor</span>
+            <input class="input" id="sellerName" autocomplete="name" placeholder="Nombre" />
+          </label>
+        </div>
+
+        <div class="login-panel" id="adminLoginPanel" ${state.loginMode === "admin" ? "" : "hidden"}>
+          <label class="field">
+            <span>Usuario</span>
+            <select class="select" id="loginUser" autocomplete="username">
+              ${Object.entries(APP_USERS)
+                .map(([key, user]) => `<option value="${key}">${escapeHtml(user.name)}</option>`)
+                .join("")}
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Contrasena</span>
+            <input class="input" id="loginPassword" type="password" autocomplete="current-password" />
+          </label>
+        </div>
 
         ${state.loginError ? `<p class="login-error">${escapeHtml(state.loginError)}</p>` : ""}
         <button class="primary-btn" style="width:100%;margin-top:18px" type="submit">Ingresar</button>
@@ -341,8 +381,41 @@ function renderLogin() {
     </main>
   `;
 
+  const loginMode = document.querySelector("#loginMode");
+  const sellerPanel = document.querySelector("#sellerLoginPanel");
+  const adminPanel = document.querySelector("#adminLoginPanel");
+  loginMode.addEventListener("change", () => {
+    const adminMode = loginMode.value === "admin";
+    state.loginMode = loginMode.value;
+    state.loginError = "";
+    sellerPanel.hidden = adminMode;
+    adminPanel.hidden = !adminMode;
+  });
+
   document.querySelector("#loginForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const mode = document.querySelector("#loginMode").value;
+    state.loginMode = mode;
+
+    if (mode === "vendedor") {
+      const sellerName = document.querySelector("#sellerName").value.trim();
+      if (sellerName.length < 2) {
+        state.loginError = "Escribe el nombre del vendedor";
+        render();
+        return;
+      }
+      state.auth = {
+        user: `vendedor-${Date.now()}`,
+        name: sellerName,
+        role: "vendedor",
+        loggedAt: new Date().toISOString()
+      };
+      state.loginError = "";
+      writeJson(AUTH_KEY, state.auth);
+      render();
+      return;
+    }
+
     const userKey = document.querySelector("#loginUser").value;
     const password = document.querySelector("#loginPassword").value;
     const user = APP_USERS[userKey];
@@ -391,7 +464,7 @@ function renderTabs() {
           )
           .join("")}
         <div class="user-pill">
-          <span>${escapeHtml(state.auth.name)} · ${state.auth.role === "admin" ? "Admin" : "Ventas"}</span>
+          <span>${escapeHtml(state.auth.name)} · ${roleLabel()}</span>
           <button id="logoutBtn" type="button">Salir</button>
         </div>
       </div>
@@ -405,9 +478,11 @@ function renderStatsBar() {
     ["Total nichos", total.total, "#94a3b8"],
     ["Disponibles", total.disponibles, STATUS.disponible.color],
     ["Reservados", total.reservados, STATUS.reservado.color],
-    ["Vendidos", total.vendidos, STATUS.vendido.color],
-    ["Ingresos Bs.", formatMoney(total.ingresos), "#818cf8"]
+    ["Vendidos", total.vendidos, STATUS.vendido.color]
   ];
+  if (isAdmin()) {
+    cards.push(["Ingresos Bs.", formatMoney(total.ingresos), "#818cf8"]);
+  }
   return `
     <section class="stats-bar">
       <div class="stats-grid">
@@ -443,7 +518,7 @@ function renderToolbar() {
             .map((group) => `<option value="${group}" ${state.groupFilter === group ? "selected" : ""}>Grupo ${group}</option>`)
             .join("")}
         </select>
-        <button class="ghost-btn" id="exportBtn" type="button">Exportar JSON</button>
+        ${isAdmin() ? `<button class="ghost-btn" id="exportBtn" type="button">Exportar JSON</button>` : ""}
         <span class="sync-pill ${state.syncStatus}">${escapeHtml(syncLabel())}</span>
       </div>
     </section>
@@ -659,7 +734,7 @@ function renderLotCard(lot) {
       <span class="lot-detail">
         Grupo ${escapeHtml(lot.grupo)}
         ${data.comprador ? `<br />Comprador: <strong>${escapeHtml(data.comprador)}</strong>` : ""}
-        ${data.precio ? `<br />Bs. ${formatMoney(Number(data.precio))}` : ""}
+        ${isAdmin() && data.precio ? `<br />Bs. ${formatMoney(Number(data.precio))}` : ""}
         ${data.modifiedBy ? `<br />Editado por ${escapeHtml(data.modifiedBy)} · ${formatDate(data.modifiedAt)}` : ""}
       </span>
     </button>
@@ -675,7 +750,7 @@ function renderHistoryView() {
           <div class="map-title">Historial de cambios</div>
           <p class="small-text">${escapeHtml(syncLabel())}</p>
         </div>
-        <button class="ghost-btn" id="clearHistoryBtn" type="button">Limpiar historial</button>
+        ${isAdmin() ? `<button class="ghost-btn" id="clearHistoryBtn" type="button">Limpiar historial</button>` : ""}
       </div>
       ${
         history.length
@@ -698,7 +773,7 @@ function renderHistoryItem(item) {
           Nicho <strong>${escapeHtml(item.id)}</strong> cambiado a
           <span style="color:${status.color};font-weight:900">${status.label}</span>
           ${item.comprador ? ` · ${escapeHtml(item.comprador)}` : ""}
-          ${item.precio ? ` · Bs. ${formatMoney(Number(item.precio))}` : ""}
+          ${isAdmin() && item.precio ? ` · Bs. ${formatMoney(Number(item.precio))}` : ""}
         </div>
       </div>
     </article>
@@ -727,6 +802,49 @@ function renderBadge(statusKey) {
 function renderModal(id) {
   const data = lotData(id);
   const lot = LOTES.find((item) => item.id === id);
+  const sellerLocked = isSeller() && data.status === "vendido";
+  const statusControl = isAdmin()
+    ? `
+          <label class="field">
+            <span>Estado</span>
+            <select class="select" id="formStatus">
+              ${Object.entries(STATUS)
+                .map(([key, status]) => `<option value="${key}" ${data.status === key ? "selected" : ""}>${status.label}</option>`)
+                .join("")}
+            </select>
+          </label>
+        `
+    : `
+          <input id="formStatus" type="hidden" value="reservado" />
+          <div class="seller-rule">
+            Vendedor: solo puede guardar este nicho como reservado.
+          </div>
+        `;
+
+  if (sellerLocked) {
+    return `
+      <div class="modal-backdrop" id="modalBackdrop">
+        <div class="modal">
+          <div class="modal-head">
+            <div>
+              <h2>Nicho ${escapeHtml(id)}</h2>
+              <p class="small-text">Grupo ${escapeHtml(lot?.grupo || "-")}</p>
+            </div>
+            ${renderBadge(data.status)}
+          </div>
+          <div class="modal-body">
+            <div class="seller-rule danger">
+              Este nicho ya esta vendido. Un vendedor no puede cambiarlo.
+            </div>
+            <div class="modal-actions single">
+              <button class="primary-btn" id="cancelModal" type="button">Cerrar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   return `
     <div class="modal-backdrop" id="modalBackdrop">
       <form class="modal" id="lotForm">
@@ -738,22 +856,21 @@ function renderModal(id) {
           ${renderBadge(data.status)}
         </div>
         <div class="modal-body">
+          ${statusControl}
           <label class="field">
-            <span>Estado</span>
-            <select class="select" id="formStatus">
-              ${Object.entries(STATUS)
-                .map(([key, status]) => `<option value="${key}" ${data.status === key ? "selected" : ""}>${status.label}</option>`)
-                .join("")}
-            </select>
-          </label>
-          <label class="field">
-            <span>Comprador o responsable</span>
+            <span>${isSeller() ? "Responsable de reserva" : "Comprador o responsable"}</span>
             <input class="input" id="formBuyer" value="${escapeAttr(data.comprador || "")}" placeholder="Nombre completo" />
           </label>
-          <label class="field">
-            <span>Precio Bs.</span>
-            <input class="input" id="formPrice" type="number" min="0" step="1" value="${escapeAttr(data.precio || "")}" placeholder="0" />
-          </label>
+          ${
+            isAdmin()
+              ? `
+                  <label class="field">
+                    <span>Precio Bs.</span>
+                    <input class="input" id="formPrice" type="number" min="0" step="1" value="${escapeAttr(data.precio || "")}" placeholder="0" />
+                  </label>
+                `
+              : ""
+          }
           <label class="field">
             <span>Origen / contacto</span>
             <input class="input" id="formOrigin" value="${escapeAttr(data.origen || "")}" placeholder="Telefono, referido, oficina..." />
@@ -822,6 +939,7 @@ function bindEvents() {
   });
 
   document.querySelector("#clearHistoryBtn")?.addEventListener("click", () => {
+    if (!isAdmin()) return;
     state.history = [];
     writeJson(HISTORY_KEY, state.history);
     if (firebaseStore.enabled) {
@@ -1088,10 +1206,19 @@ function updateMapSvg(svg = document.querySelector("#vectorMap")) {
 function saveLotFromForm(event) {
   event.preventDefault();
   const id = state.selectedId;
+  const current = lotData(id);
+
+  if (isSeller() && current.status === "vendido") {
+    state.selectedId = null;
+    showToast("Un vendedor no puede cambiar nichos vendidos");
+    render();
+    return;
+  }
+
   const next = {
-    status: document.querySelector("#formStatus").value,
+    status: isSeller() ? "reservado" : document.querySelector("#formStatus").value,
     comprador: document.querySelector("#formBuyer").value.trim(),
-    precio: document.querySelector("#formPrice").value,
+    precio: isSeller() ? current.precio || "" : document.querySelector("#formPrice").value,
     origen: document.querySelector("#formOrigin").value.trim(),
     nota: document.querySelector("#formNote").value.trim(),
     modifiedBy: state.auth.name,
